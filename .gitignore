@@ -60,3 +60,7 @@ _deps/
 
 # AI Agent Guides (Not to be committed to Repo)
 AGENT_GUIDE.md
+
+# Nexus Mods specific files
+NEXUS_DESCRIPTION.md
+*.zip
