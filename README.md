@@ -5,7 +5,7 @@ A simple REFramework mod that shows what you're doing in Resident Evil: Requiem 
 <p align="center">
   <img src="visuals/1.png" width="49%" />
   <img src="visuals/2.png" width="49%" />
-  <img src="visuals/3.png" width="49%" />
+  <img src="visuals/4.png" width="49%" />
 </p>
 
 ## What it shows
@@ -26,6 +26,16 @@ If you want to compile the mod yourself, just use the `build.bat` script or use 
 
 ## For Developers
 File `reframework/autorun/discord_scout.lua` is included just to help find game values and testing things out. You don't need it for normal use.
+# How to start use scout
+1. Download `discord_scout.lua` from this repository and put it in `reframework/autorun/`
+2. Open scout window first time by push this button in REFramework
+<p align="left">
+  <img src="visuals/scout1.png" width="35%" />
+</p>
+3. Now you can see some states that i managed to find. For example when Grace is crouch while monster nearby she got state "Hide"
+<p align="left">
+  <img src="visuals/scout2.png" width="85%" />
+</p>
 
 ## Credits
 Inspiration: [Discord Rich Presence (RE4 Remake)](https://www.nexusmods.com/residentevil42023/mods/1449) by TommInfinite
