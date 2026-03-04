@@ -22,11 +22,11 @@ Everything is fully customizable through `config.ini`, and you can translate tex
 3. Drop `DiscordPresenceRE9.dll` right into your `reframework/plugins/` folder.
 
 ## Building from source
-If you want to compile the mod yourself, just use the `build.bat` script or use `CMakeLists.txt` for your favorite IDE.
+If you want to compile mod yourself, just use `build.bat` script or use `CMakeLists.txt` for your favorite IDE.
 
 ## For Developers
 File `reframework/autorun/discord_scout.lua` is included just to help find game values and testing things out. You don't need it for normal use.
-# How to start use scout
+### How to start use scout
 1. Download `discord_scout.lua` from this repository and put it in `reframework/autorun/`
 2. Open scout window first time by push this button in REFramework
 <p align="left">
