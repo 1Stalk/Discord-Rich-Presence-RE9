@@ -3,9 +3,9 @@
 A simple REFramework mod that shows what you're doing in Resident Evil: Requiem (RE9) on your Discord profile!
 
 <p align="center">
-  <img src="visuals/1.png" width="40%" />
-  <img src="visuals/2.png" width="40%" />
-  <img src="visuals/3.png" width="40%" />
+  <img src="visuals/1.png" width="49%" />
+  <img src="visuals/2.png" width="49%" />
+  <img src="visuals/3.png" width="49%" />
 </p>
 
 ## What it shows
