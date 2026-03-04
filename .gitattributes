@@ -1,0 +1,30 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Code and text files
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.c text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.ini text eol=lf
+*.cmake text eol=lf
+
+# Windows specific scripts and projects
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sln text eol=crlf
+*.vcxproj text eol=crlf
+*.filters text eol=crlf
+
+# Binary files
+*.dll binary
+*.exe binary
+*.lib binary
+*.obj binary
+*.exp binary
+*.pdb binary
+*.idb binary
+*.png binary
+*.jpg binary
