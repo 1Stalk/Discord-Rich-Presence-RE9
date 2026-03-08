@@ -4,8 +4,12 @@
 // Reads game state from Lua bridge file for dynamic presence
 // ============================================================
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 #include <atomic>
@@ -19,13 +23,14 @@
 // ============================================================
 // Configuration
 // ============================================================
-static constexpr const char* DISCORD_CLIENT_ID  = "1478319086848184383";
-static constexpr const char* GAME_NAME          = "Resident Evil: Requiem";
-static constexpr int         UPDATE_INTERVAL_MS = 5000;   // 5 seconds
+static constexpr const char *DISCORD_CLIENT_ID = "1478319086848184383";
+static constexpr const char *GAME_NAME = "Resident Evil: Requiem";
+static constexpr int UPDATE_INTERVAL_MS = 5000; // 5 seconds
 
 // Path to status file written by Lua bridge script
 // Relative to game exe directory
-static constexpr const char* STATUS_FILE = "reframework\\data\\DiscordPresence\\discord_status.txt";
+static constexpr const char *STATUS_FILE =
+    "reframework\\data\\DiscordPresence\\discord_status.txt";
 
 // ============================================================
 // Lua Self-Extraction
@@ -33,14 +38,15 @@ static constexpr const char* STATUS_FILE = "reframework\\data\\DiscordPresence\\
 // when the version tag in the file doesn't match LUA_VERSION.
 // Check cost on subsequent launches: one CreateFile + ~30 bytes read.
 // ============================================================
-static constexpr int         LUA_VERSION     = 1;
-static constexpr const char* LUA_VERSION_TAG = "-- DISCORD_PRESENCE_VERSION=1";
-static constexpr const char* LUA_FILE        = "reframework\\autorun\\discord_presence.lua";
+static constexpr int LUA_VERSION = 4;
+static constexpr const char *LUA_VERSION_TAG = "-- DISCORD_PRESENCE_VERSION=4";
+static constexpr const char *LUA_FILE =
+    "reframework\\autorun\\discord_presence.lua";
 
 // Full Lua source embedded at compile time (raw string literal).
 // Delimiter LUAEOF does not appear anywhere in the Lua code.
-static constexpr const char* LUA_SOURCE = R"LUAEOF(
--- DISCORD_PRESENCE_VERSION=1
+static std::string get_lua_source() {
+  return std::string(R"LUAEOF(-- DISCORD_PRESENCE_VERSION=4
 -- Author: 1Stalk
 -- Discord Presence Bridge for Resident Evil Requiem
 
@@ -55,12 +61,14 @@ local POLL_INTERVAL    = 150  -- ~2.5 seconds at 60fps
 -- Compiled-in default format strings (used when INI is absent or a key is missing)
 local fmt_details = "{character} | {status}"
 local fmt_state   = "{chapter} | {difficulty}"
+local experimental_prologue = 0
 
 -- ================================================================
 -- Default Files Content
 -- ================================================================
 
 local DEFAULT_INI = [=====[
+; DISCORD_PRESENCE_VERSION=4
 ; ================================================================
 ;  Discord Rich Presence - Display Configuration
 ;  Mod by 1Stalk | Resident Evil Requiem
@@ -89,12 +97,18 @@ local DEFAULT_INI = [=====[
 ;   state   = {chapter}
 ; ================================================================
 
+[settings]
+; Experimental feature. If 1, shows "Prologue" when chapter is unknown.
+; Warning: Unreliable and will likely break with future story DLCs.
+experimental_prologue = 0
+
 [display]
 details = {character} | {status}
 state   = {chapter} | {difficulty}
 ]=====]
 
 local DEFAULT_TRANSLATION_INI = [=====[
+; DISCORD_PRESENCE_VERSION=4
 ; ================================================================
 ;  Discord Rich Presence RE9 — Translation File
 ; ================================================================
@@ -152,25 +166,41 @@ end
 -- ================================================================
 local function init_config()
     local f = io.open(CONFIG_PATH, "r")
-    if not f then
+    local needs_update = true
+    if f then
+        local first_line = f:read("*l")
+        if first_line and first_line:match("^;%s*DISCORD_PRESENCE_VERSION=(%d+)") == "4" then
+            needs_update = false
+        end
+        f:close()
+    end
+
+    if needs_update then
         local fw = io.open(CONFIG_PATH, "w")
         if fw then fw:write(DEFAULT_INI); fw:close() end
-        return
     end
-    -- Parse [display] section
-    local in_display = false
+
+    f = io.open(CONFIG_PATH, "r")
+    if not f then return end
+    -- Parse sections
+    local current_section = ""
     for line in f:lines() do
         local trimmed = line:match("^%s*(.-)%s*$") or ""
         if trimmed:sub(1,1) == ";" or trimmed == "" then
             -- ignore
-        elseif trimmed:lower():match("^%[display%]") then
-            in_display = true
-        elseif trimmed:match("^%[") then
-            in_display = false
-        elseif in_display then
-            local k, v = trimmed:match("^(%a+)%s*=%s*(.*)$")
-            if k == "details" and v ~= nil then fmt_details = v end
-            if k == "state"   and v ~= nil then fmt_state   = v end
+        elseif trimmed:match("^%[(.-)%]") then
+            current_section = trimmed:match("^%[(.-)%]"):lower()
+        else
+            local k, v = trimmed:match("^([%w_]+)%s*=%s*(.*)$")
+            if k and v then
+                if current_section == "display" then
+                    if k == "details" then fmt_details = v end
+                    if k == "state"   then fmt_state   = v end
+                end
+                if current_section == "settings" then
+                    if k == "experimental_prologue" then experimental_prologue = tonumber(v) or 0 end
+                end
+            end
         end
     end
     f:close()
@@ -183,12 +213,22 @@ local T = {}
 
 local function init_translations()
     local f = io.open(TRANSLATION_PATH, "r")
-    if not f then
+    local needs_update = true
+    if f then
+        local first_line = f:read("*l")
+        if first_line and first_line:match("^;%s*DISCORD_PRESENCE_VERSION=(%d+)") == "4" then
+            needs_update = false
+        end
+        f:close()
+    end
+
+    if needs_update then
         local fw = io.open(TRANSLATION_PATH, "w")
         if fw then fw:write(DEFAULT_TRANSLATION_INI); fw:close() end
-        f = io.open(TRANSLATION_PATH, "r")
-        if not f then return end -- failed to create
     end
+
+    f = io.open(TRANSLATION_PATH, "r")
+    if not f then return end
 
     for line in f:lines() do
         local trimmed = line:match("^%s*(.-)%s*$") or ""
@@ -248,25 +288,22 @@ end
 local current_chapter = nil
 
 local function update_chapter()
-    local gm = safe_call(function() return sdk.get_managed_singleton("app.GuiManager") end)
-    if gm then
-        local enabled = safe_call(function() return gm:call("get_IsQuestEnable()") end)
-        if enabled == false then
-            current_chapter = "prologue"; return
-        elseif enabled == true then
-            local im  = safe_call(function() return sdk.get_managed_singleton("app.ItemManager") end)
-            local ss  = im  and safe_call(function() return im:get_field("_SectionSetting") end)
-            local sid = ss  and safe_call(function() return ss:get_field("_SectionID") end)
-            if sid then
-                local num = tostring(sid):match("sct(%d+)")
-                current_chapter = num and tonumber(num) or nil
-            else
-                current_chapter = "prologue"
-            end
-            return
+    local im  = safe_call(function() return sdk.get_managed_singleton("app.ItemManager") end)
+    local ss  = im  and safe_call(function() return im:get_field("_SectionSetting") end)
+    local sid = ss  and safe_call(function() return ss:get_field("_SectionID") end)
+    
+    current_chapter = nil
+    if sid then
+        local sid_str = tostring(sid)
+        local num = sid_str:match("sct(%d+)")
+        if num then
+            current_chapter = tonumber(num)
+        end
+    else
+        if experimental_prologue == 1 then
+            current_chapter = "prologue"
         end
     end
-    current_chapter = nil
 end
 
 local function chapter_str()
@@ -305,7 +342,9 @@ local function update_leon(pcf)
     if not go then return end
     local comps = safe_call(function() return go:call("get_Components()") end)
     if not comps then return end
-    local count = tonumber(safe_call(function() return comps:call("get_Count()") end)) or 0
+)LUAEOF") +
+         std::string(
+             R"LUAEOF(    local count = tonumber(safe_call(function() return comps:call("get_Count()") end)) or 0
 
     if count > 18 then
         local spl = safe_call(function() return comps:call("get_Item(System.Int32)", 18) end)
@@ -391,9 +430,17 @@ re.on_pre_application_entry("UpdateScene", function()
 
     -- Main menu check
     local qm = safe_call(function() return sdk.get_managed_singleton("app.QuestManager") end)
-    if not qm then write_mainmenu(); return end
+    if not qm then 
+        current_chapter = nil
+        write_mainmenu()
+        return 
+    end
     local in_game = safe_call(function() return qm:get_field("_IsIngameSetupped") end)
-    if not in_game then write_mainmenu(); return end
+    if not in_game then 
+        current_chapter = nil
+        write_mainmenu()
+        return 
+    end
 
     -- Update shared game data
     update_chapter()
@@ -437,42 +484,48 @@ re.on_pre_application_entry("UpdateScene", function()
         mental     = mental_str,
     }
 
-    write_status_lines(expand(fmt_details, vars), expand(fmt_state, vars))
+    local function clean_seps(s)
+        local prev
+        repeat prev = s; s = s:gsub("%s*([|%-])%s*%1%s*", " %1 ") until s == prev
+        s = s:gsub("^[%s|%-]+", "")
+        s = s:gsub("[%s|%-]+$", "")
+        return s
+    end
+
+    write_status_lines(clean_seps(expand(fmt_details, vars)), clean_seps(expand(fmt_state, vars)))
 end)
 
-)LUAEOF";
+
+)LUAEOF");
+}
 
 static std::string read_status_file() {
-    // Build full path relative to the process working directory
-    char exe_dir[MAX_PATH] = {};
-    GetModuleFileNameA(nullptr, exe_dir, MAX_PATH);
+  // Build full path relative to the process working directory
+  char exe_dir[MAX_PATH] = {};
+  GetModuleFileNameA(nullptr, exe_dir, MAX_PATH);
 
-    // Walk back to last backslash to get directory
-    char* last_sep = strrchr(exe_dir, '\\');
-    if (last_sep) *(last_sep + 1) = '\0';
+  // Walk back to last backslash to get directory
+  char *last_sep = strrchr(exe_dir, '\\');
+  if (last_sep)
+    *(last_sep + 1) = '\0';
 
-    std::string path = std::string(exe_dir) + STATUS_FILE;
+  std::string path = std::string(exe_dir) + STATUS_FILE;
 
-    HANDLE hFile = CreateFileA(
-        path.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE,  // allow Lua to write while we read
-        nullptr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr
-    );
+  HANDLE hFile = CreateFileA(
+      path.c_str(), GENERIC_READ,
+      FILE_SHARE_READ | FILE_SHARE_WRITE, // allow Lua to write while we read
+      nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 
-    if (hFile == INVALID_HANDLE_VALUE) {
-        return "";  // file not created yet
-    }
+  if (hFile == INVALID_HANDLE_VALUE) {
+    return ""; // file not created yet
+  }
 
-    char buf[512] = {};
-    DWORD bytesRead = 0;
-    ReadFile(hFile, buf, sizeof(buf) - 1, &bytesRead, nullptr);
-    CloseHandle(hFile);
+  char buf[512] = {};
+  DWORD bytesRead = 0;
+  ReadFile(hFile, buf, sizeof(buf) - 1, &bytesRead, nullptr);
+  CloseHandle(hFile);
 
-    return std::string(buf, bytesRead);
+  return std::string(buf, bytesRead);
 }
 
 // ============================================================
@@ -480,8 +533,8 @@ static std::string read_status_file() {
 // ============================================================
 
 struct PresenceState {
-    const char* details;   // line 1: character status (nullptr = not shown)
-    const char* state;     // line 2: chapter + difficulty
+  const char *details; // line 1: character status (nullptr = not shown)
+  const char *state;   // line 2: chapter + difficulty
 };
 
 // Persistent buffers for returned c_str pointers
@@ -492,32 +545,33 @@ static std::string g_state_buf;
 //   Line 1: details text  (empty = Discord hides it)
 //   Line 2: state text
 // Special value "mainmenu" = show Main Menu, no details.
-static PresenceState get_presence_from_status(const std::string& content) {
-    if (content.empty() || content == "mainmenu")
-        return { nullptr, "Main Menu" };
+static PresenceState get_presence_from_status(const std::string &content) {
+  if (content.empty() || content == "mainmenu")
+    return {nullptr, "Main Menu"};
 
-    auto nl = content.find('\n');
-    if (nl == std::string::npos) {
-        // Single line — treat as state only
-        g_state_buf = content;
-        while (!g_state_buf.empty() && (g_state_buf.back() == '\r' || g_state_buf.back() == ' '))
-            g_state_buf.pop_back();
-        return { nullptr, g_state_buf.c_str() };
-    }
+  auto nl = content.find('\n');
+  if (nl == std::string::npos) {
+    // Single line — treat as state only
+    g_state_buf = content;
+    while (!g_state_buf.empty() &&
+           (g_state_buf.back() == '\r' || g_state_buf.back() == ' '))
+      g_state_buf.pop_back();
+    return {nullptr, g_state_buf.c_str()};
+  }
 
-    g_details_buf = content.substr(0, nl);
-    g_state_buf   = content.substr(nl + 1);
+  g_details_buf = content.substr(0, nl);
+  g_state_buf = content.substr(nl + 1);
 
-    auto trim_cr = [](std::string& s) {
-        while (!s.empty() && (s.back() == '\r' || s.back() == '\n'))
-            s.pop_back();
-    };
-    trim_cr(g_details_buf);
-    trim_cr(g_state_buf);
+  auto trim_cr = [](std::string &s) {
+    while (!s.empty() && (s.back() == '\r' || s.back() == '\n'))
+      s.pop_back();
+  };
+  trim_cr(g_details_buf);
+  trim_cr(g_state_buf);
 
-    const char* details = g_details_buf.empty() ? nullptr : g_details_buf.c_str();
-    const char* state   = g_state_buf.empty()   ? "Main Menu" : g_state_buf.c_str();
-    return { details, state };
+  const char *details = g_details_buf.empty() ? nullptr : g_details_buf.c_str();
+  const char *state = g_state_buf.empty() ? "Main Menu" : g_state_buf.c_str();
+  return {details, state};
 }
 
 // ============================================================
@@ -525,150 +579,162 @@ static PresenceState get_presence_from_status(const std::string& content) {
 // Each packet: [op:uint32][len:uint32][json:len bytes]
 // ============================================================
 
-static HANDLE            g_pipe    = INVALID_HANDLE_VALUE;
-static int               g_nonce   = 0;
-static std::atomic<bool> g_running { false };
-static std::thread       g_thread;
+static HANDLE g_pipe = INVALID_HANDLE_VALUE;
+static int g_nonce = 0;
+static std::atomic<bool> g_running{false};
+static std::thread g_thread;
 
-static bool ipc_write(HANDLE pipe, uint32_t op, const char* json, uint32_t json_len) {
-    uint8_t hdr[8];
-    memcpy(hdr,     &op,       4);
-    memcpy(hdr + 4, &json_len, 4);
-    DWORD written = 0;
-    if (!WriteFile(pipe, hdr,  8,        &written, nullptr) || written != 8)        return false;
-    if (!WriteFile(pipe, json, json_len, &written, nullptr) || written != json_len) return false;
-    return true;
+static bool ipc_write(HANDLE pipe, uint32_t op, const char *json,
+                      uint32_t json_len) {
+  uint8_t hdr[8];
+  memcpy(hdr, &op, 4);
+  memcpy(hdr + 4, &json_len, 4);
+  DWORD written = 0;
+  if (!WriteFile(pipe, hdr, 8, &written, nullptr) || written != 8)
+    return false;
+  if (!WriteFile(pipe, json, json_len, &written, nullptr) ||
+      written != json_len)
+    return false;
+  return true;
 }
 
-static bool ipc_read(HANDLE pipe, uint32_t& op, std::string& json) {
-    uint8_t hdr[8] = {};
-    DWORD   n      = 0;
-    if (!ReadFile(pipe, hdr, 8, &n, nullptr) || n != 8) return false;
+static bool ipc_read(HANDLE pipe, uint32_t &op, std::string &json) {
+  uint8_t hdr[8] = {};
+  DWORD n = 0;
+  if (!ReadFile(pipe, hdr, 8, &n, nullptr) || n != 8)
+    return false;
 
-    memcpy(&op, hdr, 4);
-    uint32_t len = 0;
-    memcpy(&len, hdr + 4, 4);
+  memcpy(&op, hdr, 4);
+  uint32_t len = 0;
+  memcpy(&len, hdr + 4, 4);
 
-    if (len == 0 || len > 65536) { json.clear(); return true; }
-    json.resize(len);
-    if (!ReadFile(pipe, &json[0], len, &n, nullptr) || n != len) return false;
+  if (len == 0 || len > 65536) {
+    json.clear();
     return true;
+  }
+  json.resize(len);
+  if (!ReadFile(pipe, &json[0], len, &n, nullptr) || n != len)
+    return false;
+  return true;
 }
 
 static void ipc_drain(HANDLE pipe) {
-    DWORD avail = 0;
-    while (PeekNamedPipe(pipe, nullptr, 0, nullptr, &avail, nullptr) && avail >= 8) {
-        uint32_t    op = 0;
-        std::string tmp;
-        if (!ipc_read(pipe, op, tmp)) break;
-    }
+  DWORD avail = 0;
+  while (PeekNamedPipe(pipe, nullptr, 0, nullptr, &avail, nullptr) &&
+         avail >= 8) {
+    uint32_t op = 0;
+    std::string tmp;
+    if (!ipc_read(pipe, op, tmp))
+      break;
+  }
 }
 
 static HANDLE discord_connect() {
-    for (int i = 0; i <= 9; i++) {
-        std::string path = "\\\\.\\pipe\\discord-ipc-" + std::to_string(i);
-        WaitNamedPipeA(path.c_str(), 1000);
+  for (int i = 0; i <= 9; i++) {
+    std::string path = "\\\\.\\pipe\\discord-ipc-" + std::to_string(i);
+    WaitNamedPipeA(path.c_str(), 1000);
 
-        HANDLE pipe = CreateFileA(
-            path.c_str(),
-            GENERIC_READ | GENERIC_WRITE,
-            0, nullptr, OPEN_EXISTING, 0, nullptr
-        );
-        if (pipe == INVALID_HANDLE_VALUE) continue;
+    HANDLE pipe = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                              nullptr, OPEN_EXISTING, 0, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE)
+      continue;
 
-        // Handshake (op=0)
-        std::string hs  = "{\"v\":1,\"client_id\":\"";
-        hs             += DISCORD_CLIENT_ID;
-        hs             += "\"}";
-        if (!ipc_write(pipe, 0, hs.c_str(), static_cast<uint32_t>(hs.size()))) {
-            CloseHandle(pipe);
-            continue;
-        }
-
-        uint32_t    resp_op = 0;
-        std::string resp_json;
-        if (!ipc_read(pipe, resp_op, resp_json)) {
-            CloseHandle(pipe);
-            continue;
-        }
-
-        return pipe;
+    // Handshake (op=0)
+    std::string hs = "{\"v\":1,\"client_id\":\"";
+    hs += DISCORD_CLIENT_ID;
+    hs += "\"}";
+    if (!ipc_write(pipe, 0, hs.c_str(), static_cast<uint32_t>(hs.size()))) {
+      CloseHandle(pipe);
+      continue;
     }
-    return INVALID_HANDLE_VALUE;
+
+    uint32_t resp_op = 0;
+    std::string resp_json;
+    if (!ipc_read(pipe, resp_op, resp_json)) {
+      CloseHandle(pipe);
+      continue;
+    }
+
+    return pipe;
+  }
+  return INVALID_HANDLE_VALUE;
 }
 
 // Escape a string for JSON (handles quotes and backslashes)
-static std::string json_escape(const char* s) {
-    std::string out;
-    for (; *s; ++s) {
-        if (*s == '"')       out += "\\\"";
-        else if (*s == '\\') out += "\\\\";
-        else                 out += *s;
-    }
-    return out;
+static std::string json_escape(const char *s) {
+  std::string out;
+  for (; *s; ++s) {
+    if (*s == '"')
+      out += "\\\"";
+    else if (*s == '\\')
+      out += "\\\\";
+    else
+      out += *s;
+  }
+  return out;
 }
 
-static bool discord_set_activity(HANDLE pipe, const char* details, const char* state, int64_t start_ts) {
-    ++g_nonce;
+static bool discord_set_activity(HANDLE pipe, const char *details,
+                                 const char *state, int64_t start_ts) {
+  ++g_nonce;
 
-    char json[1024];
-    int  len;
+  char json[1024];
+  int len;
 
-    if (details && *details) {
-        // With details field (currently unused, kept for future use)
-        std::string details_esc = json_escape(details);
-        std::string state_esc   = json_escape(state);
-        len = snprintf(json, sizeof(json),
-            "{"
-            "\"cmd\":\"SET_ACTIVITY\","
-            "\"args\":{"
-                "\"pid\":%lu,"
-                "\"activity\":{"
-                    "\"details\":\"%s\","
-                    "\"state\":\"%s\","
-                    "\"timestamps\":{\"start\":%lld}"
-                "}"
-            "},"
-            "\"nonce\":\"%d\""
-            "}",
-            static_cast<unsigned long>(GetCurrentProcessId()),
-            details_esc.c_str(),
-            state_esc.c_str(),
-            static_cast<long long>(start_ts),
-            g_nonce
-        );
-    } else {
-        // Without details — Discord shows app name from Developer Portal, no duplication
-        std::string state_esc = json_escape(state);
-        len = snprintf(json, sizeof(json),
-            "{"
-            "\"cmd\":\"SET_ACTIVITY\","
-            "\"args\":{"
-                "\"pid\":%lu,"
-                "\"activity\":{"
-                    "\"state\":\"%s\","
-                    "\"timestamps\":{\"start\":%lld}"
-                "}"
-            "},"
-            "\"nonce\":\"%d\""
-            "}",
-            static_cast<unsigned long>(GetCurrentProcessId()),
-            state_esc.c_str(),
-            static_cast<long long>(start_ts),
-            g_nonce
-        );
-    }
+  if (details && *details) {
+    // With details field (currently unused, kept for future use)
+    std::string details_esc = json_escape(details);
+    std::string state_esc = json_escape(state);
+    len = snprintf(json, sizeof(json),
+                   "{"
+                   "\"cmd\":\"SET_ACTIVITY\","
+                   "\"args\":{"
+                   "\"pid\":%lu,"
+                   "\"activity\":{"
+                   "\"details\":\"%s\","
+                   "\"state\":\"%s\","
+                   "\"timestamps\":{\"start\":%lld}"
+                   "}"
+                   "},"
+                   "\"nonce\":\"%d\""
+                   "}",
+                   static_cast<unsigned long>(GetCurrentProcessId()),
+                   details_esc.c_str(), state_esc.c_str(),
+                   static_cast<long long>(start_ts), g_nonce);
+  } else {
+    // Without details — Discord shows app name from Developer Portal, no
+    // duplication
+    std::string state_esc = json_escape(state);
+    len =
+        snprintf(json, sizeof(json),
+                 "{"
+                 "\"cmd\":\"SET_ACTIVITY\","
+                 "\"args\":{"
+                 "\"pid\":%lu,"
+                 "\"activity\":{"
+                 "\"state\":\"%s\","
+                 "\"timestamps\":{\"start\":%lld}"
+                 "}"
+                 "},"
+                 "\"nonce\":\"%d\""
+                 "}",
+                 static_cast<unsigned long>(GetCurrentProcessId()),
+                 state_esc.c_str(), static_cast<long long>(start_ts), g_nonce);
+  }
 
-    if (len <= 0 || len >= static_cast<int>(sizeof(json))) return false;
+  if (len <= 0 || len >= static_cast<int>(sizeof(json)))
+    return false;
 
-    ipc_drain(pipe);
-    if (!ipc_write(pipe, 1, json, static_cast<uint32_t>(len))) return false;
+  ipc_drain(pipe);
+  if (!ipc_write(pipe, 1, json, static_cast<uint32_t>(len)))
+    return false;
 
-    uint32_t    resp_op = 0;
-    std::string resp;
-    if (!ipc_read(pipe, resp_op, resp)) return false;
+  uint32_t resp_op = 0;
+  std::string resp;
+  if (!ipc_read(pipe, resp_op, resp))
+    return false;
 
-    return true;
+  return true;
 }
 
 // ============================================================
@@ -678,47 +744,49 @@ static bool discord_set_activity(HANDLE pipe, const char* details, const char* s
 
 // Returns the full path to discord_presence.lua relative to the game exe.
 static std::string get_lua_path() {
-    char exe_dir[MAX_PATH] = {};
-    GetModuleFileNameA(nullptr, exe_dir, MAX_PATH);
-    char* sep = strrchr(exe_dir, '\\');
-    if (sep) *(sep + 1) = '\0';
-    return std::string(exe_dir) + LUA_FILE;
+  char exe_dir[MAX_PATH] = {};
+  GetModuleFileNameA(nullptr, exe_dir, MAX_PATH);
+  char *sep = strrchr(exe_dir, '\\');
+  if (sep)
+    *(sep + 1) = '\0';
+  return std::string(exe_dir) + LUA_FILE;
 }
 
-// Returns true if the file is missing OR its first line doesn't match LUA_VERSION_TAG.
-static bool lua_needs_update(const std::string& path) {
-    HANDLE h = CreateFileA(
-        path.c_str(), GENERIC_READ, FILE_SHARE_READ,
-        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr
-    );
-    if (h == INVALID_HANDLE_VALUE) return true;  // file doesn't exist yet
+// Returns true if the file is missing OR its first line doesn't match
+// LUA_VERSION_TAG.
+static bool lua_needs_update(const std::string &path) {
+  HANDLE h = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE)
+    return true; // file doesn't exist yet
 
-    char    buf[64] = {};
-    DWORD   n       = 0;
-    DWORD   tag_len = static_cast<DWORD>(strlen(LUA_VERSION_TAG));
-    ReadFile(h, buf, tag_len, &n, nullptr);
-    CloseHandle(h);
+  char buf[64] = {};
+  DWORD n = 0;
+  DWORD tag_len = static_cast<DWORD>(strlen(LUA_VERSION_TAG));
+  ReadFile(h, buf, tag_len, &n, nullptr);
+  CloseHandle(h);
 
-    return (n < tag_len) || (strncmp(buf, LUA_VERSION_TAG, tag_len) != 0);
+  return (n < tag_len) || (strncmp(buf, LUA_VERSION_TAG, tag_len) != 0);
 }
 
 // Writes the embedded Lua source to disk.
-// Also ensures the autorun directory exists (safe to call even if it's already there).
-static void write_lua_file(const std::string& path) {
-    // Ensure reframework\autorun\ exists
-    std::string dir = path.substr(0, path.rfind('\\'));
-    CreateDirectoryA(dir.c_str(), nullptr);  // no-op if already exists
+// Also ensures the autorun directory exists (safe to call even if it's already
+// there).
+static void write_lua_file(const std::string &path) {
+  // Ensure reframework\autorun\ exists
+  std::string dir = path.substr(0, path.rfind('\\'));
+  CreateDirectoryA(dir.c_str(), nullptr); // no-op if already exists
 
-    HANDLE h = CreateFileA(
-        path.c_str(), GENERIC_WRITE, 0,
-        nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr
-    );
-    if (h == INVALID_HANDLE_VALUE) return;
+  HANDLE h = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                         FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE)
+    return;
 
-    DWORD src_len = static_cast<DWORD>(strlen(LUA_SOURCE));
-    DWORD written = 0;
-    WriteFile(h, LUA_SOURCE, src_len, &written, nullptr);
-    CloseHandle(h);
+  std::string src = get_lua_source();
+  DWORD src_len = static_cast<DWORD>(src.length());
+  DWORD written = 0;
+  WriteFile(h, src.c_str(), src_len, &written, nullptr);
+  CloseHandle(h);
 }
 
 // Entry point called once from reframework_plugin_initialize.
@@ -726,21 +794,23 @@ static void write_lua_file(const std::string& path) {
 // Also ensures both reframework/autorun/DiscordPresence/ and
 // reframework/data/DiscordPresence/ directories exist.
 static void extract_lua_if_needed() {
-    // Build base exe dir
-    char exe_dir[MAX_PATH] = {};
-    GetModuleFileNameA(nullptr, exe_dir, MAX_PATH);
-    char* sep = strrchr(exe_dir, '\\');
-    if (sep) *(sep + 1) = '\0';
-    std::string base(exe_dir);
+  // Build base exe dir
+  char exe_dir[MAX_PATH] = {};
+  GetModuleFileNameA(nullptr, exe_dir, MAX_PATH);
+  char *sep = strrchr(exe_dir, '\\');
+  if (sep)
+    *(sep + 1) = '\0';
+  std::string base(exe_dir);
 
-    // Ensure data/DiscordPresence/ exists (Lua writes the status file here)
-    CreateDirectoryA((base + "reframework\\data\\DiscordPresence").c_str(), nullptr);
+  // Ensure data/DiscordPresence/ exists (Lua writes the status file here)
+  CreateDirectoryA((base + "reframework\\data\\DiscordPresence").c_str(),
+                   nullptr);
 
-    // Extract Lua if missing or outdated
-    std::string lua_path = base + LUA_FILE;
-    if (lua_needs_update(lua_path)) {
-        write_lua_file(lua_path);
-    }
+  // Extract Lua if missing or outdated
+  std::string lua_path = base + LUA_FILE;
+  if (lua_needs_update(lua_path)) {
+    write_lua_file(lua_path);
+  }
 }
 
 // ============================================================
@@ -748,48 +818,49 @@ static void extract_lua_if_needed() {
 // ============================================================
 
 static void discord_thread_func() {
-    const int64_t session_start = static_cast<int64_t>(time(nullptr));
-    std::string   last_status   = "";
+  const int64_t session_start = static_cast<int64_t>(time(nullptr));
+  std::string last_status = "";
 
-    while (g_running) {
-        // Connect / reconnect
-        if (g_pipe == INVALID_HANDLE_VALUE) {
-            g_pipe = discord_connect();
-            if (g_pipe == INVALID_HANDLE_VALUE) {
-                // Retry after 15 seconds
-                for (int i = 0; i < 150 && g_running; i++)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                continue;
-            }
-            // Force update on reconnect
-            last_status = "__force__";
-        }
-
-        // Read current status from Lua bridge file
-        std::string status = read_status_file();
-
-        // Only send to Discord if state changed (reduces IPC chatter)
-        if (status != last_status) {
-            PresenceState presence = get_presence_from_status(status);
-
-            if (!discord_set_activity(g_pipe, presence.details, presence.state, session_start)) {
-                CloseHandle(g_pipe);
-                g_pipe = INVALID_HANDLE_VALUE;
-                continue;
-            }
-            last_status = status;
-        }
-
-        // Sleep UPDATE_INTERVAL_MS in small chunks for fast shutdown
-        const int chunks = UPDATE_INTERVAL_MS / 100;
-        for (int i = 0; i < chunks && g_running; i++)
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  while (g_running) {
+    // Connect / reconnect
+    if (g_pipe == INVALID_HANDLE_VALUE) {
+      g_pipe = discord_connect();
+      if (g_pipe == INVALID_HANDLE_VALUE) {
+        // Retry after 15 seconds
+        for (int i = 0; i < 150 && g_running; i++)
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        continue;
+      }
+      // Force update on reconnect
+      last_status = "__force__";
     }
 
-    if (g_pipe != INVALID_HANDLE_VALUE) {
+    // Read current status from Lua bridge file
+    std::string status = read_status_file();
+
+    // Only send to Discord if state changed (reduces IPC chatter)
+    if (status != last_status) {
+      PresenceState presence = get_presence_from_status(status);
+
+      if (!discord_set_activity(g_pipe, presence.details, presence.state,
+                                session_start)) {
         CloseHandle(g_pipe);
         g_pipe = INVALID_HANDLE_VALUE;
+        continue;
+      }
+      last_status = status;
     }
+
+    // Sleep UPDATE_INTERVAL_MS in small chunks for fast shutdown
+    const int chunks = UPDATE_INTERVAL_MS / 100;
+    for (int i = 0; i < chunks && g_running; i++)
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  if (g_pipe != INVALID_HANDLE_VALUE) {
+    CloseHandle(g_pipe);
+    g_pipe = INVALID_HANDLE_VALUE;
+  }
 }
 
 // ============================================================
@@ -798,21 +869,21 @@ static void discord_thread_func() {
 struct REFrameworkPluginInitializeParam;
 
 extern "C" {
-    __declspec(dllexport)
-    bool reframework_plugin_initialize(const REFrameworkPluginInitializeParam*) {
-        // Self-extract Lua bridge script to reframework/autorun/ if needed.
-        // Runs before REFramework scans autorun/, so the script is always present.
-        extract_lua_if_needed();
+__declspec(dllexport) bool
+reframework_plugin_initialize(const REFrameworkPluginInitializeParam *) {
+  // Self-extract Lua bridge script to reframework/autorun/ if needed.
+  // Runs before REFramework scans autorun/, so the script is always present.
+  extract_lua_if_needed();
 
-        g_running = true;
-        g_thread  = std::thread(discord_thread_func);
-        return true;
-    }
+  g_running = true;
+  g_thread = std::thread(discord_thread_func);
+  return true;
+}
 }
 
 BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
-    if (reason == DLL_PROCESS_DETACH && g_running) {
-        g_running = false;
-    }
-    return TRUE;
+  if (reason == DLL_PROCESS_DETACH && g_running) {
+    g_running = false;
+  }
+  return TRUE;
 }
