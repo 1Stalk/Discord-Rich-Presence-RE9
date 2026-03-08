@@ -61,7 +61,7 @@ local POLL_INTERVAL    = 150  -- ~2.5 seconds at 60fps
 -- Compiled-in default format strings (used when INI is absent or a key is missing)
 local fmt_details = "{character} | {status}"
 local fmt_state   = "{chapter} | {difficulty}"
-local experimental_prologue = 0
+local experimental_prologue = 1
 
 -- ================================================================
 -- Default Files Content
@@ -100,7 +100,7 @@ local DEFAULT_INI = [=====[
 [settings]
 ; Experimental feature. If 1, shows "Prologue" when chapter is unknown.
 ; Warning: Unreliable and will likely break with future story DLCs.
-experimental_prologue = 0
+experimental_prologue = 1
 
 [display]
 details = {character} | {status}
